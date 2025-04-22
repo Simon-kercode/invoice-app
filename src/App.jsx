@@ -1,6 +1,6 @@
 // Vite + React + pdf-lib
 import { useState } from "react";
-import { PDFDocument, rgb } from "pdf-lib";
+import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
 
 export default function App() {
   const [formData, setFormData] = useState({
@@ -33,81 +33,230 @@ export default function App() {
     return items.reduce((total, item) => total + item.price, 0);
   };
 
+  const generateInvoiceNumber = () => {
+    const now = new Date();
+    const datePart = now.toISOString().slice(0, 10).replace(/-/g, ''); // ex: 20250422
+    const randomPart = Math.floor(Math.random() * 10000).toString().padStart(4, '0'); // ex: 0931
+    return `${datePart}-${randomPart}`; // → "20250422-0931"
+  };
+
+  
+
   const TAX_RATE = 0.2;
 
   const generatePDF = async () => {
     const pdfDoc = await PDFDocument.create();
+    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
     const page = pdfDoc.addPage([600, 800]);
     const { width, height } = page.getSize();
-
-    page.drawText("Invoice", {
+  
+    const imageUrl = "/logo.png";
+    const imageBytes = await fetch(imageUrl).then((res) => res.arrayBuffer());
+    const pngImage = await pdfDoc.embedPng(imageBytes);
+    const pngDims = pngImage.scale(0.15);
+  
+    // Logo
+    page.drawImage(pngImage, {
       x: 50,
+      y: height - 70,
+      width: pngDims.width,
+      height: pngDims.height,
+    });
+  
+    // Title
+    const invoiceNumber = generateInvoiceNumber();
+    const title = `Invoice No. ${invoiceNumber}`;
+    const fontSize = 20;
+    const titleWidth = font.widthOfTextAtSize(title, fontSize);
+    const xTitle = (width - titleWidth) / 2;
+  
+    page.drawText(title, {
+      x: xTitle,
       y: height - 50,
-      size: 20,
-      color: rgb(0, 0, 0.8),
+      size: fontSize,
+      font: font,
+      color: rgb(0, 0, 0),
     });
-
+  
+    // Client Info
     page.drawText(`Client: ${formData.firstname} ${formData.lastname}`, {
-      x: 50,
-      y: height - 90,
-      size: 14,
-    });
-
-    page.drawText(`Phone number: ${formData.phone}`, {
       x: 50,
       y: height - 110,
       size: 14,
+      font,
     });
-
-    page.drawText(`Address: ${formData.address}`, {
+  
+    page.drawText(`Phone: ${formData.phone}`, {
       x: 50,
       y: height - 130,
       size: 14,
+      font,
     });
-
-    page.drawText(`${formData.postcode} ${formData.town}`, {
+  
+    page.drawText(`Address: ${formData.address}`, {
       x: 50,
       y: height - 150,
       size: 14,
+      font,
     });
-
-    page.drawText(`Date: ${formData.date}`, {
+  
+    page.drawText(`${formData.postcode} ${formData.town}`, {
       x: 50,
       y: height - 170,
       size: 14,
+      font,
     });
-
-    let y = height - 210;
-    page.drawText("Items:", { x: 50, y, size: 14 });
-    y -= 20;
-    items.forEach((item, index) => {
-      page.drawText(`${index + 1}. ${item.description} - €${item.price.toFixed(2)}`, {
-        x: 60,
-        y,
-        size: 12,
+  
+    page.drawText(`Date: ${formData.date}`, {
+      x: 50,
+      y: height - 190,
+      size: 14,
+      font,
+    });
+  
+    // Table
+    const colDescWidth = 300;
+    const colPriceWidth = 100;
+    const tableX = 50;
+    let tableY = height - 240;
+    const rowHeight = 25;
+    const tableFontSize = 12;
+  
+    // Table Header
+    page.drawRectangle({
+      x: tableX,
+      y: tableY,
+      width: colDescWidth + colPriceWidth,
+      height: rowHeight,
+      borderColor: rgb(0, 0, 0),
+      borderWidth: 1,
+      color: rgb(0.9, 0.9, 0.9),
+    });
+  
+    page.drawText("Description", {
+      x: tableX + 5,
+      y: tableY + 7,
+      size: tableFontSize,
+      font,
+    });
+  
+    page.drawText("Price (€)", {
+      x: tableX + colDescWidth + 5,
+      y: tableY + 7,
+      size: tableFontSize,
+      font,
+    });
+  
+    tableY -= rowHeight;
+  
+    // Table Rows
+    items.forEach((item) => {
+      page.drawRectangle({
+        x: tableX,
+        y: tableY,
+        width: colDescWidth,
+        height: rowHeight,
+        borderColor: rgb(0, 0, 0),
+        borderWidth: 1,
       });
-      y -= 20;
+  
+      page.drawRectangle({
+        x: tableX + colDescWidth,
+        y: tableY,
+        width: colPriceWidth,
+        height: rowHeight,
+        borderColor: rgb(0, 0, 0),
+        borderWidth: 1,
+      });
+  
+      page.drawText(item.description, {
+        x: tableX + 5,
+        y: tableY + 7,
+        size: tableFontSize,
+        font,
+      });
+  
+      page.drawText(`${item.price.toFixed(2)} €`, {
+        x: tableX + colDescWidth + 5,
+        y: tableY + 7,
+        size: tableFontSize,
+        font,
+      });
+  
+      tableY -= rowHeight;
     });
-
+  
+    // Totals
     const subtotal = calculateSubtotal();
     const tax = subtotal * TAX_RATE;
     const total = subtotal + tax;
-
-    y -= 10;
-    page.drawText(`Subtotal: €${subtotal.toFixed(2)}`, { x: 50, y, size: 14 });
-    y -= 20;
-    page.drawText(`Tax (20%): €${tax.toFixed(2)}`, { x: 50, y, size: 14 });
-    y -= 20;
-    page.drawText(`Total: €${total.toFixed(2)}`, { x: 50, y, size: 14 });
-
+  
+    const totalStartY = tableY - 10;
+    const totalLabelX = tableX + colDescWidth - 60;
+    const totalValueX = tableX + colDescWidth + 5;
+  
+    page.drawText("Subtotal:", {
+      x: totalLabelX,
+      y: totalStartY,
+      size: tableFontSize,
+      font,
+    });
+    page.drawText(`${subtotal.toFixed(2)} €`, {
+      x: totalValueX,
+      y: totalStartY,
+      size: tableFontSize,
+      font,
+    });
+  
+    page.drawText("Tax (20%):", {
+      x: totalLabelX,
+      y: totalStartY - 18,
+      size: tableFontSize,
+      font,
+    });
+    page.drawText(`${tax.toFixed(2)} €`, {
+      x: totalValueX,
+      y: totalStartY - 18,
+      size: tableFontSize,
+      font,
+    });
+  
+    page.drawText("Total:", {
+      x: totalLabelX,
+      y: totalStartY - 36,
+      size: tableFontSize + 1,
+      font,
+    });
+    page.drawText(`${total.toFixed(2)} €`, {
+      x: totalValueX,
+      y: totalStartY - 36,
+      size: tableFontSize + 1,
+      font,
+    });
+  
+    // Signature Area
+    page.drawText("Client's Signature:", {
+      x: tableX,
+      y: totalStartY - 80,
+      size: 12,
+      font,
+    });
+    page.drawLine({
+      start: { x: tableX + 130, y: totalStartY - 82 },
+      end: { x: tableX + 300, y: totalStartY - 82 },
+      thickness: 1,
+      color: rgb(0, 0, 0),
+    });
+  
+    // Save and download
     const pdfBytes = await pdfDoc.save();
-
     const blob = new Blob([pdfBytes], { type: "application/pdf" });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
-    link.download = "invoice.pdf";
+    link.download = `invoice-${invoiceNumber}.pdf`;
     link.click();
   };
+  
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-100">
@@ -132,7 +281,7 @@ export default function App() {
               value={formData.lastname}
             />
             <input
-              type="tephone"
+              type="phone"
               name="phone"
               placeholder="Phone"
               className="border p-2 w-full rounded"
@@ -205,9 +354,9 @@ export default function App() {
               ))}
             </ul>
             <div className="mt-4 text-right w-full">
-              <p className="text-sm">Subtotal: €{calculateSubtotal().toFixed(2)}</p>
-              <p className="text-sm">Tax (20%): €{(calculateSubtotal() * TAX_RATE).toFixed(2)}</p>
-              <p className="font-semibold">Total: €{(calculateSubtotal() * (1 + TAX_RATE)).toFixed(2)}</p>
+              <p className="text-sm">Subtotal: {calculateSubtotal().toFixed(2)} €</p>
+              <p className="text-sm">Tax (20%): {(calculateSubtotal() * TAX_RATE).toFixed(2)} €</p>
+              <p className="font-semibold">Total: {(calculateSubtotal() * (1 + TAX_RATE)).toFixed(2)} €</p>
             </div>
             <button
               onClick={generatePDF}
